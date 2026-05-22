@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: ./launch.sh <mode> <model_size> [steps] [nodes]
+# Usage: ./launch.sh <mode> <model_size> [steps] [nodes] [arch]
 #
 # Modes:     throughput  (50 steps, with W&B)
 #            train       (N steps, with W&B and Tensorboard)
@@ -9,11 +9,18 @@
 #
 # Steps:     required for train mode (e.g., 1000, 5000, 15000)
 # Nodes:     optional, default 4 (max 8)
+# Arch:      optional, default transformer
+#            transformer  — standard GPT-style (RoPE, GQA, SwiGLU)
+#            mamba2       — pure Mamba2 SSM (0% attention)
+#            hybrid-8     — Mamba2 + ~8% attention layers
+#            hybrid-25    — Mamba2 + 25% attention layers
+#            hybrid-50    — Mamba2 + 50% attention layers
 #
 # Examples:  ./launch.sh throughput 760m
 #            ./launch.sh throughput 8b 50 1
 #            ./launch.sh train 760m 5000
 #            ./launch.sh train 1.5b 3000 8
+#            ./launch.sh train 125m 12000 4 hybrid-25
 
 set -euo pipefail
 
@@ -85,9 +92,43 @@ case $MODEL_SIZE in
         ;;
 esac
 
+################ Architecture config ################
+ARCH=${5:-transformer}
+case $ARCH in
+    transformer)
+        PRETRAIN_SCRIPT="pretrain_gpt.py"
+        ARCH_ARGS_CONTENT=""
+        NEED_ATTN_ARGS=true
+        ;;
+    mamba2)
+        PRETRAIN_SCRIPT="pretrain_mamba.py"
+        ARCH_ARGS_CONTENT="--spec megatron.core.models.mamba.mamba_layer_specs mamba_stack_spec"
+        NEED_ATTN_ARGS=false
+        ;;
+    hybrid-8)
+        PRETRAIN_SCRIPT="pretrain_mamba.py"
+        ARCH_ARGS_CONTENT="--spec megatron.core.models.mamba.mamba_layer_specs mamba_stack_spec --hybrid-attention-ratio 0.08"
+        NEED_ATTN_ARGS=true
+        ;;
+    hybrid-25)
+        PRETRAIN_SCRIPT="pretrain_mamba.py"
+        ARCH_ARGS_CONTENT="--spec megatron.core.models.mamba.mamba_layer_specs mamba_stack_spec --hybrid-attention-ratio 0.25"
+        NEED_ATTN_ARGS=true
+        ;;
+    hybrid-50)
+        PRETRAIN_SCRIPT="pretrain_mamba.py"
+        ARCH_ARGS_CONTENT="--spec megatron.core.models.mamba.mamba_layer_specs mamba_stack_spec --hybrid-attention-ratio 0.50"
+        NEED_ATTN_ARGS=true
+        ;;
+    *)
+        echo "Unknown arch: $ARCH. Choose: transformer, mamba2, hybrid-8, hybrid-25, hybrid-50"
+        exit 1
+        ;;
+esac
+
 GBS=256
 SEQ_LEN=4096
-JOB_NAME="gipfel-${MODE}-${MODEL_SIZE}-${TRAINING_STEPS}s-${NODES}n"
+JOB_NAME="gipfel-${MODE}-${MODEL_SIZE}-${ARCH}-${TRAINING_STEPS}s-${NODES}n"
 
 ################ W&B block ################
 if [ "$WANDB" = true ]; then
@@ -154,10 +195,17 @@ TRAINING_STEPS=${TRAINING_STEPS}
 
 # Logging
 PROJECT_NAME=gipfelsturm
-EXP_NAME=${MODE}-${MODEL_SIZE}-\${SLURM_NNODES}n
+EXP_NAME=${MODE}-${MODEL_SIZE}-${ARCH}-\${SLURM_NNODES}n
 LOG_DIR=/iopsstor/scratch/cscs/\$USER/gipfelsturm/\$PROJECT_NAME/\$EXP_NAME
 TENSORBOARD_DIR=\$LOG_DIR/tensorboard
 CONFIGS
+
+cat >> "$SCRIPT" << ARCH_SECTION
+
+# Architecture: ${ARCH}
+PRETRAIN_SCRIPT=${PRETRAIN_SCRIPT}
+ARCH_ARGS=(${ARCH_ARGS_CONTENT})
+ARCH_SECTION
 
 cat >> "$SCRIPT" << 'SETUP'
 
@@ -185,6 +233,7 @@ TRANSFORMER_ENGINE_ARGS=(
 
 SETUP
 
+if [ "$NEED_ATTN_ARGS" = true ]; then
 cat >> "$SCRIPT" << MODEL
 NETWORK_SIZE_ARGS=(
     --num-layers ${NUM_LAYERS}
@@ -201,6 +250,17 @@ NETWORK_SIZE_ARGS=(
     --seq-length \$SEQ_LEN
 )
 MODEL
+else
+cat >> "$SCRIPT" << MODEL
+NETWORK_SIZE_ARGS=(
+    --num-layers ${NUM_LAYERS}
+    --hidden-size ${HIDDEN}
+    --normalization RMSNorm
+    --untie-embeddings-and-output-weights
+    --seq-length \$SEQ_LEN
+)
+MODEL
+fi
 
 cat >> "$SCRIPT" << TRAINING
 
@@ -289,7 +349,7 @@ TORCHRUN_ARGS=(
     --tee 3
 )
 
-TRAINING_CMD="torchrun ${TORCHRUN_ARGS[@]} $MEGATRON_LM_DIR/pretrain_gpt.py \
+TRAINING_CMD="torchrun ${TORCHRUN_ARGS[@]} $MEGATRON_LM_DIR/$PRETRAIN_SCRIPT \
     ${TRANSFORMER_ENGINE_ARGS[@]} \
     ${NETWORK_SIZE_ARGS[@]} \
     ${TRAINING_ARGS[@]} \
@@ -301,6 +361,7 @@ TRAINING_CMD="torchrun ${TORCHRUN_ARGS[@]} $MEGATRON_LM_DIR/pretrain_gpt.py \
     ${LOGGING_ARGS[@]} \
     ${TOKENIZER_ARGS[@]} \
     ${DATA_ARGS[@]}"
+[ ${#ARCH_ARGS[@]} -gt 0 ] && TRAINING_CMD="$TRAINING_CMD ${ARCH_ARGS[@]}"
 
 TOKENIZER
 

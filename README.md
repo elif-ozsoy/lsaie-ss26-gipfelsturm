@@ -106,7 +106,7 @@ We use the GPT-2 BPE tokenizer (`data/gpt2-vocab.json`, `data/gpt2-merges.txt`) 
 
 Training runs on the [Swiss AI Initiative's](https://swiss-ai.org) partition on Alps called Clariden, which uses SLURM.
 
-All training is launched via `launch.sh <mode> <model_size> [steps] [nodes]`. The launcher generates a self-contained SLURM script in `logs/` for reproducibility and submits it. Model sizes: 125m, 350m, 760m, 1.5b, 3b, 8b. Nodes default to 4 (max 8).
+All training is launched via `launch.sh <mode> <model_size> [steps] [nodes] [arch]`. The launcher generates a self-contained SLURM script in `logs/` for reproducibility and submits it. Model sizes: 125m, 350m, 760m, 1.5b, 3b, 8b. Nodes default to 4 (max 8). Architecture defaults to `transformer`.
 
 **Throughput** mode runs 50 steps (by default) to measure tokens/sec/GPU:
 
@@ -120,7 +120,29 @@ All training is launched via `launch.sh <mode> <model_size> [steps] [nodes]`. Th
 ```bash
 ./launch.sh train 760m 5000           # 5000 steps, 4 nodes
 ./launch.sh train 1.5b 3000 8         # 3000 steps, 8 nodes
+./launch.sh train 125m 12000 4 hybrid-25  # Mamba2 + 25% attention, 125m
 ```
+
+**Architecture sweep** (hybrid ratio experiment at 125m, ~64 GPU-hours = 4 × 4-node runs):
+
+```bash
+./launch.sh train 125m 12000 4 transformer  # baseline
+./launch.sh train 125m 12000 4 mamba2       # pure SSM
+./launch.sh train 125m 12000 4 hybrid-8     # ~8% attention (1/12 layers)
+./launch.sh train 125m 12000 4 hybrid-25    # 25% attention (3/12 layers)
+```
+
+Supported architectures:
+
+| Arch | Training script | Attention ratio | Notes |
+|------|----------------|-----------------|-------|
+| `transformer` | `pretrain_gpt.py` | 100% | RoPE, GQA, SwiGLU |
+| `mamba2` | `pretrain_mamba.py` | 0% | Pure SSM, no pos. embeddings |
+| `hybrid-8` | `pretrain_mamba.py` | ~8% | Mamba2 + 1 attn layer per 12 |
+| `hybrid-25` | `pretrain_mamba.py` | 25% | Mamba2 + 3 attn layers per 12 |
+| `hybrid-50` | `pretrain_mamba.py` | 50% | Mamba2 + 6 attn layers per 12 |
+
+The hybrid architectures use Megatron-LM's `mamba_stack_spec` and `--hybrid-attention-ratio` flag. Attention layers in hybrid models use the same GQA + RoPE configuration as the pure transformer baseline.
 
 **Single-GPU throughput baselines** (50 steps, SEQ_LEN=4096, TP=1, PP=1):
 
