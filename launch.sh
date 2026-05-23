@@ -233,6 +233,14 @@ TRANSFORMER_ENGINE_ARGS=(
 
 SETUP
 
+if [ "$ARCH" != "transformer" ]; then
+cat >> "$SCRIPT" << 'MAMBA_INSTALL'
+
+# mamba-ssm is not in the NGC container; install to user home (persists across jobs)
+python -c "import mamba_ssm" 2>/dev/null || pip install mamba-ssm --quiet --user
+MAMBA_INSTALL
+fi
+
 if [ "$NEED_ATTN_ARGS" = true ]; then
 cat >> "$SCRIPT" << MODEL
 NETWORK_SIZE_ARGS=(
