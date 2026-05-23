@@ -103,7 +103,7 @@ case $ARCH in
     mamba2)
         PRETRAIN_SCRIPT="pretrain_mamba.py"
         ARCH_ARGS_CONTENT="--spec megatron.core.models.mamba.mamba_layer_specs mamba_stack_spec"
-        NEED_ATTN_ARGS=false
+        NEED_ATTN_ARGS=true
         ;;
     hybrid-8)
         PRETRAIN_SCRIPT="pretrain_mamba.py"
