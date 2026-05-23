@@ -14,7 +14,7 @@
 mkdir -p logs
 
 echo "[$(date)] Installing mamba-ssm..."
-pip install mamba-ssm --user
+pip install mamba-ssm --no-build-isolation --user
 echo "[$(date)] Verifying install..."
 python -c "import mamba_ssm; print('mamba-ssm version:', mamba_ssm.__version__)"
 echo "[$(date)] Done."

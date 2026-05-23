@@ -237,7 +237,7 @@ if [ "$ARCH" != "transformer" ]; then
 cat >> "$SCRIPT" << 'MAMBA_INSTALL'
 
 # mamba-ssm is not in the NGC container; install to user home (persists across jobs)
-python -c "import mamba_ssm" 2>/dev/null || pip install mamba-ssm --quiet --user
+python -c "import mamba_ssm" 2>/dev/null || pip install mamba-ssm --no-build-isolation --quiet --user
 MAMBA_INSTALL
 fi
 
