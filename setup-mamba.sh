@@ -31,12 +31,15 @@ cat > "$SCRIPT" << SBATCH
 echo "START TIME: \$(date)"
 echo "Installing causal-conv1d and mamba-ssm inside alps3 container (ARM64)..."
 
-# Run pip inside the container where CUDA and Python are available.
-# --user installs to ~/.local, which is accessible via the /users mount.
-# --force-reinstall is required: causal-conv1d may already exist in ~/.local
-# compiled for x86 or a different CUDA version (e.g. installed on a login node).
-# Without it, pip skips reinstallation and the wrong .so is still loaded on GH200.
-srun -n1 --environment=alps3 python3 -m pip install --user --force-reinstall \\
+# Run pip inside the container where CUDA, nvcc, and Python are available.
+# --user installs to ~/.local, which persists via the /users mount.
+# --no-build-isolation: there are no pre-built ARM64 wheels, so pip compiles from
+#   source. By default pip creates a clean isolated build env with no torch, which
+#   causes "ModuleNotFoundError: No module named 'torch'" at build time. This flag
+#   makes pip use the current env (where torch is installed) instead.
+# --force-reinstall: ensures any previously compiled x86/.local binaries are replaced
+#   with ones compiled for GH200 (ARM64 + correct CUDA version).
+srun -n1 --environment=alps3 python3 -m pip install --user --no-build-isolation --force-reinstall \\
     "causal-conv1d>=1.4.0" \\
     "mamba-ssm>=2.2.2"
 
