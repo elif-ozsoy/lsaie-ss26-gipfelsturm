@@ -253,6 +253,7 @@ DISTRIBUTED_ARGS=(
     --use-distributed-optimizer
     --overlap-grad-reduce
     --overlap-param-gather
+    --exit-signal-handler
 )
 
 LOGGING_ARGS=(

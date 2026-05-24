@@ -234,6 +234,7 @@ As we upgrade Megatron-LM to a new release version, we will attempt to apply all
 | Patch | Description |
 |-------|-------------|
 | `0001-log-tokens-per-sec-to-wandb.patch` | Logs tokens/sec/GPU to stdout, TensorBoard, and W&B |
+| `0002-graceful-exit-on-sigterm.patch` | Robust graceful exit on SIGTERM: finalizes async checkpoints before saving, wraps FT sections, and adds a pre-iteration signal check to avoid launching a new training step after shutdown is requested |
 
 ## References
 

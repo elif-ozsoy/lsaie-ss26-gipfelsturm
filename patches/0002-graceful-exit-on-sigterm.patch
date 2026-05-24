@@ -1,0 +1,81 @@
+# Patch: Robust graceful exit on SIGTERM
+#
+# Problem:
+#   Megatron-LM has a distributed SIGTERM handler (DistributedSignalHandler) and
+#   an exit decision function (checkpoint_and_decide_exit) that together let all
+#   ranks save a checkpoint and exit cleanly when SIGTERM is received (e.g. when
+#   SLURM is about to kill the job at walltime). However, there are three gaps:
+#
+#   1. Missing async-checkpoint finalization before the SIGTERM save:
+#      The previous iteration may have triggered an async checkpoint that is still
+#      in-flight. checkpoint_and_decide_exit() calls save_checkpoint_and_time()
+#      without first calling maybe_finalize_async_save(blocking=True). This can
+#      leave the checkpoint directory in an inconsistent state.
+#
+#   2. Missing FT-integration wrapping around the SIGTERM checkpoint save:
+#      If --enable-ft-package is active, the FT monitor expects every checkpoint
+#      save to be wrapped in on_checkpointing_start() / on_checkpointing_end().
+#      The SIGTERM path skips these calls, so the monitor may declare a hang while
+#      the checkpoint is being written.
+#
+#   3. SIGTERM is only checked once per iteration, after the full train_step:
+#      On large models or long sequences, a single training step can take several
+#      minutes. A SIGTERM received at the start of a step is not acted on until
+#      the step completes, potentially exceeding SLURM's kill timeout and causing
+#      a hard kill (no checkpoint saved). Adding a pre-step check avoids launching
+#      a new expensive train_step when shutdown has already been requested.
+#
+# What this patch does:
+#   1. checkpoint_and_decide_exit() SIGTERM path: calls
+#      maybe_finalize_async_save(blocking=True) before the checkpoint save, and
+#      wraps the save in ft_integration.on_checkpointing_start/end().
+#
+#   2. train() while loop: adds a lightweight pre-iteration SIGTERM check
+#      immediately after the per-step async checkpoint finalization poll
+#      (maybe_finalize_async_save(blocking=False)). If a signal has been received,
+#      sets should_exit=True and breaks out of the loop without launching a new
+#      train_step. No additional checkpoint save is needed at this point because
+#      the previous async checkpoint was just finalized by the poll above.
+#
+# How to find the right location in a future Megatron version:
+#   Gap 1 & 2: search for 'signals_received()' in training.py. Find the block
+#   inside checkpoint_and_decide_exit() that calls save_checkpoint_and_time().
+#   Add maybe_finalize_async_save(blocking=True) and the ft_integration calls
+#   immediately before/after the save call.
+#
+#   Gap 3: search for 'maybe_finalize_async_save(blocking=False)' in training.py.
+#   The pre-step check goes in the 4 lines immediately after that call, inside
+#   the main while loop of train().
+#
+# Applied to: Megatron-LM core_v0.16.1
+#
+diff --git a/megatron/training/training.py b/megatron/training/training.py
+--- a/megatron/training/training.py
++++ b/megatron/training/training.py
+@@ -2322,11 +2322,14 @@ def checkpoint_and_decide_exit(
+     if args.exit_signal_handler:
+         signal_handler = get_signal_handler()
+         if any(signal_handler.signals_received()):
+             if args.save:
++                maybe_finalize_async_save(blocking=True)
++                ft_integration.on_checkpointing_start()
+                 save_checkpoint_and_time(iteration, model, optimizer,
+                                          opt_param_scheduler,
+                                          num_floating_point_operations_so_far,
+                                          checkpointing_context,
+                                          train_data_iterator=train_data_iterator)
++                ft_integration.on_checkpointing_end()
+             print_datetime('exiting program after receiving SIGTERM.')
+             return True
+@@ -2693,3 +2696,11 @@ def train(
+         ft_integration.on_checkpointing_start()
+         maybe_finalize_async_save(blocking=False)
+         ft_integration.on_checkpointing_end(is_async_finalization=True)
++
++        if args.exit_signal_handler:
++            signal_handler = get_signal_handler()
++            if any(signal_handler.signals_received()):
++                print_datetime('exiting program after receiving SIGTERM (pre-step).')
++                should_exit = True
++                break
++
