@@ -8,9 +8,11 @@
 #
 # Usage: ./test-graceful-exit.sh [sigterm_delay_seconds]
 #
-# sigterm_delay_seconds: how long to wait before firing SIGTERM (default 120).
-#   Should be long enough for initialization + a few training steps.
-#   On Clariden, 125m initialization takes ~30–60 s, so 120 s is safe.
+# sigterm_delay_seconds: how long to wait before firing SIGTERM (default 210).
+#   Must be long enough for: initialization (~90 s) + first training step (~90 s
+#   due to Triton/CUDA kernel JIT compilation) + a few fast subsequent steps.
+#   If SIGTERM fires during the first step, torchrun's 30 s kill timeout expires
+#   before the workers can respond, causing a hard kill. 210 s is conservative.
 #
 # What to check in the log:
 #   PASS: "exiting program after receiving SIGTERM" appears, job ends cleanly
@@ -20,7 +22,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/config.sh"
 
-SIGTERM_DELAY=${1:-120}
+SIGTERM_DELAY=${1:-210}
 
 mkdir -p logs
 SCRIPT="logs/test-graceful-exit.sbatch"
@@ -53,7 +55,11 @@ cat >> "$SCRIPT" << 'SETUP'
 mkdir -p logs $DATASET_CACHE_DIR
 
 cd $MEGATRON_LM_DIR
-flock $MEGATRON_LM_DIR/.git-lock bash -c "cd $MEGATRON_LM_DIR && git checkout -- . && git apply $WORKDIR/patches/*.patch"
+flock $MEGATRON_LM_DIR/.git-lock bash -c "cd $MEGATRON_LM_DIR && git checkout -- . && git apply $WORKDIR/patches/*.patch" || {
+    echo "FATAL: patch application failed — test is invalid, aborting."
+    exit 1
+}
+echo "Patches applied successfully."
 export PYTHONPATH=$MEGATRON_LM_DIR:$PYTHONPATH
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export TORCH_NCCL_AVOID_RECORD_STREAMS=1

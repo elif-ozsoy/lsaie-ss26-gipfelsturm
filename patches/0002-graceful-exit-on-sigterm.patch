@@ -52,22 +52,27 @@
 diff --git a/megatron/training/training.py b/megatron/training/training.py
 --- a/megatron/training/training.py
 +++ b/megatron/training/training.py
-@@ -2322,11 +2322,14 @@ def checkpoint_and_decide_exit(
+@@ -2322,16 +2322,19 @@ def checkpoint_and_decide_exit(
      if args.exit_signal_handler:
          signal_handler = get_signal_handler()
          if any(signal_handler.signals_received()):
              if args.save:
 +                maybe_finalize_async_save(blocking=True)
 +                ft_integration.on_checkpointing_start()
-                 save_checkpoint_and_time(iteration, model, optimizer,
-                                          opt_param_scheduler,
-                                          num_floating_point_operations_so_far,
-                                          checkpointing_context,
-                                          train_data_iterator=train_data_iterator)
+                 save_checkpoint_and_time(
+                     iteration,
+                     model,
+                     optimizer,
+                     opt_param_scheduler,
+                     num_floating_point_operations_so_far,
+                     checkpointing_context,
+                     train_data_iterator=train_data_iterator,
+                 )
 +                ft_integration.on_checkpointing_end()
              print_datetime('exiting program after receiving SIGTERM.')
+
              return True
-@@ -2693,3 +2696,11 @@ def train(
+@@ -2693,6 +2696,14 @@ def train(
          ft_integration.on_checkpointing_start()
          maybe_finalize_async_save(blocking=False)
          ft_integration.on_checkpointing_end(is_async_finalization=True)
@@ -79,3 +84,6 @@ diff --git a/megatron/training/training.py b/megatron/training/training.py
 +                should_exit = True
 +                break
 +
+         # Update the timeout for all process groups after initialization
+         # We update the timeout after the first successful iteration,
+         # which takes longer than others usually
