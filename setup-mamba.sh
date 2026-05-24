@@ -33,7 +33,10 @@ echo "Installing causal-conv1d and mamba-ssm inside alps3 container (ARM64)..."
 
 # Run pip inside the container where CUDA and Python are available.
 # --user installs to ~/.local, which is accessible via the /users mount.
-srun -n1 --environment=alps3 python3 -m pip install --user \\
+# --force-reinstall is required: causal-conv1d may already exist in ~/.local
+# compiled for x86 or a different CUDA version (e.g. installed on a login node).
+# Without it, pip skips reinstallation and the wrong .so is still loaded on GH200.
+srun -n1 --environment=alps3 python3 -m pip install --user --force-reinstall \\
     "causal-conv1d>=1.4.0" \\
     "mamba-ssm>=2.2.2"
 
