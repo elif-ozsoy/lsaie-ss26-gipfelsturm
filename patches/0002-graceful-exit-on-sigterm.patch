@@ -47,13 +47,13 @@
 #   The pre-step check goes in the 4 lines immediately after that call, inside
 #   the main while loop of train().
 #
-# Applied to: Megatron-LM core_v0.16.1
+# Applied to: Megatron-LM core_r0.16.0 (commit 55ac7082517c3878ae653c07c09c534b8aed49f6)
 #
 diff --git a/megatron/training/training.py b/megatron/training/training.py
+index d61b9357..c64056ce 100644
 --- a/megatron/training/training.py
 +++ b/megatron/training/training.py
-@@ -2322,16 +2322,19 @@ def checkpoint_and_decide_exit(
-     if args.exit_signal_handler:
+@@ -2323,6 +2323,8 @@ def checkpoint_and_decide_exit(
          signal_handler = get_signal_handler()
          if any(signal_handler.signals_received()):
              if args.save:
@@ -62,9 +62,7 @@ diff --git a/megatron/training/training.py b/megatron/training/training.py
                  save_checkpoint_and_time(
                      iteration,
                      model,
-                     optimizer,
-                     opt_param_scheduler,
-                     num_floating_point_operations_so_far,
+@@ -2332,6 +2334,7 @@ def checkpoint_and_decide_exit(
                      checkpointing_context,
                      train_data_iterator=train_data_iterator,
                  )
