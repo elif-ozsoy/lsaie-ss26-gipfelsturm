@@ -70,7 +70,7 @@ diff --git a/megatron/training/training.py b/megatron/training/training.py
                  )
 +                ft_integration.on_checkpointing_end()
              print_datetime('exiting program after receiving SIGTERM.')
-
+ 
              return True
 @@ -2693,6 +2696,14 @@ def train(
          ft_integration.on_checkpointing_start()
