@@ -166,7 +166,7 @@ cat >> "$SCRIPT" << 'SETUP'
 mkdir -p logs $LOG_DIR $TENSORBOARD_DIR $DATASET_CACHE_DIR
 
 cd $MEGATRON_LM_DIR
-flock $MEGATRON_LM_DIR/.git-lock bash -c "cd $MEGATRON_LM_DIR && git checkout -- . && git apply $WORKDIR/patches/*.patch" || {
+flock $MEGATRON_LM_DIR/.git-lock bash -c "cd $MEGATRON_LM_DIR && git checkout -- . && git apply $WORKDIR/patches/0001-log-tokens-per-sec-to-wandb.patch && python3 $WORKDIR/patches/0002-graceful-exit-on-sigterm.py $MEGATRON_LM_DIR/megatron/training/training.py" || {
     echo "FATAL: patch application failed — aborting job."
     exit 1
 }
